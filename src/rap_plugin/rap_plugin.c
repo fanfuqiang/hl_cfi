@@ -112,9 +112,6 @@ static void rap_begin_function(tree decl)
 		imprecise_rap_hash = rap_hash_function_node_imprecise(node);
 	}
 
-	if (report_func_hash)
-		inform(DECL_SOURCE_LOCATION(decl), "func rap_hash: %x %s", imprecise_rap_hash.hash, IDENTIFIER_POINTER(DECL_ASSEMBLER_NAME(decl)));
-
 	/* We do not have any risk, we do not need the hash key before the function. */
 	if (0 == imprecise_rap_hash.hash 
 	     || 
@@ -129,13 +126,63 @@ static void rap_begin_function(tree decl)
 }
 
 
+static void rap_assembly_start(void)
+{
+	gcc_assert(debug_hooks == &rap_debug_hooks);
+
+	// chain to previous callback
+	if (old_debug_hooks && old_debug_hooks->assembly_start)
+		old_debug_hooks->assembly_start();
+
+#ifdef TARGET_386
+	fprintf(asm_out_file,
+		"\t.macro rap_indirect_call target hash\n"
+		"\t\tjmp 2001f\n"
+		"\t\t%s __rap_hash_ret_\\hash\n"
+		"\t\t.skip 8-(2002f-2001f),0xcc\n"
+		"\t2001:	call \\target\n"
+		"\t2002:\n"
+		"\t.endm\n",
+		(UNITS_PER_WORD == 8 ? ".quad" : ".long")
+	);
+
+	fprintf(asm_out_file,
+		"\t.macro rap_direct_call target hash=""\n"
+		"\t\t.ifb \\hash\n"
+		"\t\trap_indirect_call \\target \\target\n"
+		"\t\t.else\n"
+		"\t\trap_indirect_call \\target \\hash\n"
+		"\t\t.endif\n"
+		"\t.endm\n"
+	);
+#else
+#error unsupported target
+#endif
+}
+
+
+static void (*old_override_options_after_change)(void);
+
+static void rap_override_options_after_change(void)
+{
+	if (old_override_options_after_change)
+		old_override_options_after_change();
+
+#if BUILDING_GCC_VERSION >= 5000
+	flag_ipa_icf_functions = 0;
+#endif
+	flag_crossjumping = 0;
+	flag_optimize_sibling_calls = 0;
+}
+
+
 static void rap_start_unit_common(void *gcc_data __unused, void *user_data __unused)
 {
-	rap_hash_type_node = long_integer_type_node;
 
 	if (debug_hooks)
 		rap_debug_hooks = *debug_hooks;
 
+	rap_debug_hooks.assembly_start = rap_assembly_start;
 	rap_debug_hooks.begin_function = rap_begin_function;
 
 	old_debug_hooks = debug_hooks;
@@ -218,6 +265,7 @@ __visible int plugin_init(struct plugin_name_args *plugin_info,
         register_callback(plugin_name, PLUGIN_OVERRIDE_GATE, rap_try_call_ipa_pta, 
 			  (void *)&cfi_gcc_optimize_level);
 	register_callback(plugin_name, PLUGIN_START_UNIT, rap_start_unit_common, NULL);
+	register_callback(plugin_name, PLUGIN_ALL_IPA_PASSES_START, rap_calculate_func_hashes, NULL);
 	
 	if (require_call_hl_gather)
 	  register_callback(plugin_name, PLUGIN_PASS_MANAGER_SETUP, NULL, &hl_gather_pass_info);
