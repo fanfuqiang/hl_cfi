@@ -40,7 +40,6 @@ static bool report_func_hash, report_abs_hash;
 const char *rap_abort_ret;
 const char *rap_abort_call;
 
-
 static const struct gcc_debug_hooks *old_debug_hooks;
 static struct gcc_debug_hooks rap_debug_hooks;
 
@@ -387,7 +386,7 @@ static void rap_assembly_start(void)
 		old_debug_hooks->assembly_start();
 
 #ifdef TARGET_386
-	if (enable_type_call) {
+	if (1) {
 		fprintf(asm_out_file,
 			"\t.macro rap_indirect_call target hash\n"
 			"\t\tjmp 2001f\n"
@@ -410,7 +409,7 @@ static void rap_assembly_start(void)
 		);
 	}
 
-	if (enable_type_ret) {
+	if (1) {
 		fprintf(asm_out_file,
 			"\t.macro rap_ret target\n"
 			"\t\tret\n"
@@ -443,7 +442,7 @@ static void rap_start_unit_common(void *gcc_data __unused, void *user_data __unu
 	if (debug_hooks)
 		rap_debug_hooks = *debug_hooks;
 
-	if (enable_type_call || enable_type_ret)
+	if (1)
 		rap_debug_hooks.assembly_start = rap_assembly_start;
 	rap_debug_hooks.begin_function = rap_begin_function;
 
@@ -498,6 +497,24 @@ static tree handle_rap_hash_attribute(tree *node, tree name, tree args __unused,
 	return NULL_TREE;
 }
 
+
+static struct attribute_spec rap_hash_attr = {
+	.name			= "rap_hash",
+	.min_length		= 0,
+	.max_length		= 0,
+	.decl_required		= false,
+	.type_required		= true,
+	.function_type_required	= false,
+	.handler		= handle_rap_hash_attribute,
+#if BUILDING_GCC_VERSION >= 4007
+	.affects_type_identity	= true
+#endif
+};
+
+static void register_attributes(void *event_data __unused, void *data __unused)
+{
+	register_attribute(&rap_hash_attr);
+}
 
 __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version *version)
 {
@@ -560,9 +577,9 @@ __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gc
 			value = strtok_r(values, ",", &saveptr);
 			while (value) {
 				if (!strcmp(value, "ret"))
-					enable_type_ret = true;
+					;//enable_type_ret = true;
 				else if (!strcmp(value, "call"))
-					enable_type_call = true;
+					;//enable_type_call = true;
 				else
 					error(G_("unknown value supplied for option '-fplugin-arg-%s-%s=%s'"), plugin_name, argv[i].key, value);
 				value = strtok_r(NULL, ",", &saveptr);
@@ -581,7 +598,7 @@ __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gc
 			continue;
 		}
 
-		if (!strcmp(argv[i].key, "callabort")) {
+		if (!strcmp(argv[i].key, "cullabort")) {
 			if (!argv[i].value) {
 				error(G_("no value supplied for option '-fplugin-arg-%s-%s'"), plugin_name, argv[i].key);
 				continue;
@@ -635,12 +652,10 @@ __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gc
 			while (value) {
 				if (!strcmp(value, "func"))
 					report_func_hash = true;
-				else if (!strcmp(value, "fptr"))
-					report_fptr_hash = true;
 				else if (!strcmp(value, "abs"))
 					report_abs_hash = true;
 				else if (!strcmp(value, "runtime"))
-					report_runtime = true;
+					;//report_runtime = true;
 				else
 					error(G_("unknown value supplied for option '-fplugin-arg-%s-%s=%s'"), plugin_name, argv[i].key, value);
 				value = strtok_r(NULL, ",", &saveptr);
@@ -672,6 +687,8 @@ __visible int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gc
 #else
 		register_callback(plugin_name, PLUGIN_PRE_GENERICIZE, rap_emit_hash_symbols_finish_decl_attr, NULL);
 #endif
+	
+	register_callback(plugin_name, PLUGIN_ATTRIBUTES, register_attributes, NULL);
 	register_callback(plugin_name, PLUGIN_START_UNIT, rap_start_unit_common, NULL);
 	if (enable_abs_finish)
 		register_callback(plugin_name, PLUGIN_FINISH_UNIT, rap_finish_unit, NULL);
